@@ -1,33 +1,33 @@
-#%%
-##############################
-#            Demo1           #
-##############################
-#https://ithelp.ithome.com.tw/articles/10192738
-from keras.preprocessing.image import load_img, img_to_array
-from scipy.misc import imsave
-import numpy as np
-from scipy.optimize import fmin_l_bfgs_b
 import time
-import argparse
-from keras.applications import vgg19
+
+import numpy as np
 from keras import backend as K
-#%%
+from keras.applications import vgg19
+from keras.preprocessing.image import load_img, img_to_array
+from keras.utils import plot_model
+from scipy.misc import imsave
+from scipy.optimize import fmin_l_bfgs_b
+
+# region Demo1
+# https://ithelp.ithome.com.tw/articles/10192738
 base_image_path = "./data/image/input_image.PNG"
 style_reference_image_path = "./data/image/style_image.PNG"
 result_prefix = "./data/image/Style_Transfer/output"
 iterations = 10
-#%%
+
 # 原圖與風格圖佔output比重
 content_weight = 0.025
 style_weight = 1.0
+
 # 損失總差異預設值
 total_variation_weight = 1.0
-#%%
+
 # output 圖的寬高 >> type(load_img(base_image_path)) = PIL.Image.Image
 width, height = load_img(base_image_path).size
 img_nrows = 400
 img_ncols = int(width * img_nrows / height)
-#%%
+
+
 # 轉換成 VGG 19 input 格式 >> numpy.ndarray
 def preprocess_image(image_path):
     img = load_img(image_path, target_size=(img_nrows, img_ncols))
@@ -35,7 +35,8 @@ def preprocess_image(image_path):
     img = np.expand_dims(img, axis=0)
     img = vgg19.preprocess_input(img)
     return img
-#%%
+
+
 # 將特徵向量轉換成 image
 def deprocess_image(x):
     if K.image_data_format() == 'channels_first':
@@ -51,38 +52,40 @@ def deprocess_image(x):
     x = x[:, :, ::-1]
     x = np.clip(x, 0, 255).astype('uint8')
     return x
-#%%
+
+
 # 設定 Keras 變數 base_image = 原圖 向量
 base_image = K.variable(preprocess_image(base_image_path))
 # 設定 Keras 變數 style_reference_image = 風格圖 向量
 style_reference_image = K.variable(preprocess_image(style_reference_image_path))
-#%%
+
 # 設定合成圖的起始值
 if K.image_data_format() == 'channels_first':
     combination_image = K.placeholder((1, 3, img_nrows, img_ncols))
 else:
     combination_image = K.placeholder((1, img_nrows, img_ncols, 3))
-#%%
+
 # 合併原圖、風格圖、合成圖 向量
 input_tensor = K.concatenate([base_image,
                               style_reference_image,
                               combination_image], axis=0)
-#%%
+
 # 載入 VGG 19 模型，不包括加在最後3層的卷積層
 model = vgg19.VGG19(input_tensor=input_tensor,
-                    weights='imagenet', include_top=False)
+                    weights='imagenet',
+                    include_top=False)
 
-# print model information                    
+# print model information
 print(model.summary())
-#%% FileNotFoundError: [Errno 2] No such file or directory: 'pictures/VGG19.png'
-# save model pictures to VGG19.png                    
-from keras.utils import plot_model
+# %% FileNotFoundError: [Errno 2] No such file or directory: 'pictures/VGG19.png'
+# save model pictures to VGG19.png
 plot_model(model, to_file='pictures/VGG19.png')
-#%%
+
 # get the symbolic outputs of each "key" layer (we gave them unique names).
 # 讀取 VGG 19 模型的每一層的名稱與output
 outputs_dict = dict([(layer.name, layer.output) for layer in model.layers])
-#%%
+
+
 # 計算 風格 loss 的 gram matrix
 def gram_matrix(x):
     if K.image_data_format() == 'channels_first':
@@ -91,8 +94,9 @@ def gram_matrix(x):
         features = K.batch_flatten(K.permute_dimensions(x, (2, 0, 1)))
     gram = K.dot(features, K.transpose(features))
     return gram
-#%%
-# 計算 風格 loss 
+
+
+# 計算 風格 loss
 def style_loss(style, combination):
     assert K.ndim(style) == 3
     assert K.ndim(combination) == 3
@@ -101,14 +105,15 @@ def style_loss(style, combination):
     channels = 3
     size = img_nrows * img_ncols
     return K.sum(K.square(S - C)) / (4. * (channels ** 2) * (size ** 2))
-#%%
-# 計算 content loss 
+
+
+# 計算 content loss
 def content_loss(base, combination):
     return K.sum(K.square(combination - base))
 
+
 # the 3rd loss function, total variation loss,
 # designed to keep the generated image locally coherent
-#%%
 # 計算 損失總差異(total variation loss)，以利合成圖的連貫性
 def total_variation_loss(x):
     assert K.ndim(x) == 4
@@ -119,27 +124,28 @@ def total_variation_loss(x):
         a = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, 1:, :img_ncols - 1, :])
         b = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, :img_nrows - 1, 1:, :])
     return K.sum(K.pow(a + b, 1.25))
-#%%
+
+
 # 彙總上面三項的損失(loss)
 loss = K.variable(0.)
 layer_features = outputs_dict['block5_conv2']
 base_image_features = layer_features[0, :, :, :]
 combination_features = layer_features[2, :, :, :]
 loss.assign_add(content_weight * content_loss(base_image_features, combination_features))
-#%%
+
 feature_layers = ['block1_conv1', 'block2_conv1',
                   'block3_conv1', 'block4_conv1',
                   'block5_conv1']
-#%%
+
 for layer_name in feature_layers:
     layer_features = outputs_dict[layer_name]
     style_reference_features = layer_features[1, :, :, :]
     combination_features = layer_features[2, :, :, :]
     sl = style_loss(style_reference_features, combination_features)
     loss += (style_weight / len(feature_layers)) * sl
-    
+
 loss += total_variation_weight * total_variation_loss(combination_image)
-#%%
+
 # 計算合成圖的梯度(gradients)
 grads = K.gradients(loss, combination_image)
 
@@ -151,7 +157,8 @@ else:
     outputs.append(grads)
 
 f_outputs = K.function([combination_image], outputs)
-#%%
+
+
 # 依梯度下降法，評估模型
 def eval_loss_and_grads(x):
     if K.image_data_format() == 'channels_first':
@@ -165,7 +172,8 @@ def eval_loss_and_grads(x):
     else:
         grad_values = np.array(outs[1:]).flatten().astype('float64')
     return loss_value, grad_values
-#%%
+
+
 # 評估模型類別
 # this Evaluator class makes it possible
 # to compute loss and gradients in one pass
@@ -182,23 +190,24 @@ class Evaluator(object):
         assert self.loss_value is None
         loss_value, grad_values = eval_loss_and_grads(x)
         self.loss_value = loss_value
-        self.grad_values = grad_values
+        self.grads_values = grad_values
         return self.loss_value
 
     def grads(self, x):
         assert self.loss_value is not None
         grad_values = np.copy(self.grad_values)
         self.loss_value = None
-        self.grad_values = None
+        self.grads_values = None
         return grad_values
-#%%
+
+
 # 執行模型評估
 evaluator = Evaluator()
-#%%
+
 # run scipy-based optimization (L-BFGS) over the pixels of the generated image
 # so as to minimize the neural style loss
 x = preprocess_image(base_image_path)
-#%%
+
 # 在每一週期產生合成圖
 for i in range(iterations):
     print('Start of iteration', i)
@@ -213,529 +222,4 @@ for i in range(iterations):
     end_time = time.time()
     print('Image saved as', fname)
     print('Iteration %d completed in %ds' % (i, end_time - start_time))
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
-#%%
-
+# endregion
